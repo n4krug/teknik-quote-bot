@@ -1,8 +1,12 @@
+import type { Server } from 'node:http';
 import { Client, GatewayIntentBits, Interaction } from 'discord.js';
-import { config } from './config';
 import { commands } from './commands';
+import { config } from './config';
+import { serverUrl, startSpeakServer } from './speak-server';
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+
+let speakServer: Server | undefined;
 
 client.once('clientReady', () => {
   console.log(`Logged in as ${client.user?.tag}`);
@@ -29,4 +33,25 @@ client.on('interactionCreate', async (interaction: Interaction) => {
   }
 });
 
-client.login(config.token);
+async function shutdown(signal: string): Promise<void> {
+  console.log(`Received ${signal}, shutting down.`);
+  speakServer?.close();
+  client.destroy();
+}
+
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => {
+    void shutdown(signal);
+  });
+}
+
+startSpeakServer()
+  .then((server) => {
+    speakServer = server;
+    console.log(`Speak server listening on ${serverUrl(server)}`);
+    return client.login(config.token);
+  })
+  .catch((error: unknown) => {
+    console.error('Failed to start:', error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  });

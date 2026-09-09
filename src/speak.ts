@@ -1,62 +1,47 @@
 import 'dotenv/config';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import path from 'node:path';
-import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
-import { config } from './config';
-import { fetchQuote } from './rest-quote';
-import { playFile } from './audio';
+import { config, speakBaseUrl } from './config';
 
 function fail(message: string): never {
   process.stderr.write(`${message}\n`);
   process.exit(1);
 }
 
+function isConnectionRefused(error: unknown): boolean {
+  const candidate = error as { code?: string; cause?: { code?: string } };
+  return candidate.code === 'ECONNREFUSED' || candidate.cause?.code === 'ECONNREFUSED';
+}
+
+interface SpeakResponse {
+  text?: string;
+  dateLine?: string | null;
+  error?: string;
+}
+
 async function main(): Promise<void> {
   const channelId = process.argv[2]?.trim() || config.quoteChannelId;
 
-  if (!channelId) {
-    fail('No channel given. Pass a channel ID argument or set QUOTE_CHANNEL_ID in .env');
-  }
-
-  let quote;
+  let response: Response;
   try {
-    quote = await fetchQuote(channelId);
+    response = await fetch(`${speakBaseUrl}/speak`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(channelId ? { channelId } : {}),
+    });
   } catch (error) {
+    if (isConnectionRefused(error)) {
+      fail(`No quote bot running on ${speakBaseUrl}. Start it with "npm run dev" (or "npm start") first.`);
+    }
     fail(error instanceof Error ? error.message : String(error));
   }
 
-  if (!quote) {
-    fail('No quotable messages found in that channel.');
+  const payload = (await response.json().catch(() => null)) as SpeakResponse | null;
+
+  if (!response.ok || !payload) {
+    fail(payload?.error ?? `Speak request failed with status ${response.status}.`);
   }
 
-  let quoteText = quote.content
-
-  if (quoteText.includes("-")) {
-    const quotepieces = quoteText.split("-")
-
-    const date = `Den ${quote.createdAt.getDay()}:e ${quote.createdAt.toLocaleString('sv-se', {month: "long"})} ${quote.createdAt.getFullYear()}`
-
-    console.log(date)
-
-    quoteText = quotepieces[quotepieces.length-1] + " sa. " + quotepieces.slice(0,-1) + "."
-  }
-  console.log(quoteText)
-
-  const dir = await mkdtemp(path.join(tmpdir(), 'quote-bot-'));
-  const tts = new MsEdgeTTS();
-
-  try {
-    await tts.setMetadata(config.ttsVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-    const { audioFilePath } = await tts.toFile(dir, quoteText);
-    tts.close();
-    await playFile(audioFilePath);
-  } finally {
-    tts.close();
-    await rm(dir, { recursive: true, force: true });
-  }
+  if (payload.dateLine) process.stdout.write(`${payload.dateLine}\n`);
+  process.stdout.write(`${payload.text ?? ''}\n`);
 }
 
-main().catch((error) => {
-  fail(error instanceof Error ? error.message : String(error));
-});
+void main();
