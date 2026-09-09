@@ -1,0 +1,32 @@
+{
+  "name": "quote-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Discord bot that reposts a random message from a channel",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "deploy": "tsx src/deploy-commands.ts",
+    "quote": "tsx src/cli.ts",
+    "speak": "tsx src/speak.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "discord-api-types": "^0.38.55",
+    "discord.js": "^14.18.0",
+    "dotenv": "^16.4.7",
+    "msedge-tts": "^2.0.7",
+    "play-sound": "^1.1.6"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/play-sound": "^1.1.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

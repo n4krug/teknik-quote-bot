@@ -1,0 +1,7 @@
+services:
+  quote-bot:
+    build: .
+    container_name: quote-bot
+    restart: unless-stopped
+    env_file:
+      - .env
