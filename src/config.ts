@@ -37,6 +37,8 @@ function boolEnv(name: string, fallback: boolean): boolean {
 
 const HISTORY_LIMIT_MAX = 5000;
 const PORT_MAX = 65535;
+const LOOPBACK_HOST = '127.0.0.1';
+const ANY_HOST = '0.0.0.0';
 
 export const config = {
   token: requireEnv('DISCORD_TOKEN'),
@@ -48,9 +50,9 @@ export const config = {
   historyLimit: intEnv('QUOTE_HISTORY_LIMIT', 500, HISTORY_LIMIT_MAX),
   excludeBots: boolEnv('QUOTE_EXCLUDE_BOTS', true),
   minAgeSeconds: intEnv('QUOTE_MIN_AGE_SECONDS', 0),
-  speakHost: '127.0.0.1',
+  speakHost: optionalEnv('SPEAK_HOST') ?? LOOPBACK_HOST,
   speakPort: intEnv('SPEAK_PORT', 7433, PORT_MAX),
   webPassphrase: optionalEnv('WEB_PASSPHRASE'),
 } as const;
 
-export const speakBaseUrl = `http://${config.speakHost}:${config.speakPort}`;
+export const speakBaseUrl = `http://${config.speakHost === ANY_HOST ? LOOPBACK_HOST : config.speakHost}:${config.speakPort}`;

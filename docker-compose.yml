@@ -5,3 +5,10 @@ services:
     restart: unless-stopped
     env_file:
       - .env
+    environment:
+      # Bind inside the container so Docker can forward to it; the port below
+      # is only published on 127.0.0.1, so the reverse proxy reaches it but
+      # the rest of the network does not.
+      SPEAK_HOST: 0.0.0.0
+    ports:
+      - "127.0.0.1:${SPEAK_PORT:-7433}:${SPEAK_PORT:-7433}"

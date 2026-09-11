@@ -159,17 +159,52 @@ Silence on success; errors go to stderr with exit `1`.
 | `TTS_VOICE`             | `sv-SE-MattiasNeural` | Edge voice used by `npm run speak` |
 | `TTS_RATE`              | `+0%`   | Speaking rate adjustment for `TTS_VOICE`   |
 | `SPEAK_PORT`            | `7433`  | Port for the bot's local speak server               |
+| `SPEAK_HOST`            | `127.0.0.1` | Address to bind; `0.0.0.0` in Docker            |
 | `WEB_PASSPHRASE`        | —       | Passphrase required by the web page (empty = open)  |
 
 ## Docker
 
 ```bash
 docker compose up -d --build
+docker compose logs -f quote-bot
 docker compose exec quote-bot node dist/speak.js   # speak from inside the container
 ```
 
-The speak server binds to loopback, so it is only reachable inside the container
-— use `docker compose exec` rather than publishing the port.
+The image is a two-stage build (`node:22-alpine`): dependencies are installed,
+`src/` is compiled, and only `dist/`, `public/` and production dependencies end up
+in the runtime image, which runs as the unprivileged `node` user.
+
+Inside the container the bot binds `0.0.0.0` (`SPEAK_HOST`) so Docker can forward
+to it, and Compose publishes the port on `127.0.0.1` only — so the reverse proxy
+on the same machine reaches it, but nothing else on the network does. Set
+`SPEAK_PORT` in `.env` if you want a different port; the mapping follows it.
+
+### Behind a reverse proxy
+
+Point your proxy at `http://127.0.0.1:7433` and terminate TLS there — the bot
+speaks plain HTTP:
+
+```nginx
+server {
+  listen 443 ssl;
+  server_name quotes.example.com;
+
+  location / {
+    proxy_pass http://127.0.0.1:7433;
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+  }
+}
+```
+
+Notes for hosted use:
+
+- Set `WEB_PASSPHRASE`, otherwise anyone who reaches the page can pull quotes.
+- Playback in the browser (`/speak?mode=audio`) is what works here; the
+  host-playback route (`npm run speak`, plain `POST /speak`) needs an audio
+  device, which the container does not have — the request fails with a playback
+  error while the quote itself is still fetched and synthesised.
+- `dist/` is built into the image, so code changes need `docker compose up -d --build`.
 
 ## Scripts
 
