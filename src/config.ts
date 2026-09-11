@@ -50,6 +50,7 @@ export const config = {
   minAgeSeconds: intEnv('QUOTE_MIN_AGE_SECONDS', 0),
   speakHost: '127.0.0.1',
   speakPort: intEnv('SPEAK_PORT', 7433, PORT_MAX),
+  webPassphrase: optionalEnv('WEB_PASSPHRASE'),
 } as const;
 
 export const speakBaseUrl = `http://${config.speakHost}:${config.speakPort}`;

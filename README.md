@@ -39,6 +39,15 @@ author. Nothing is played on the host's speakers unless you use `npm run speak`.
 It is served from the bot itself, so it is same-origin and needs no CORS headers —
 which also means only the machine running the bot can open it.
 
+Set `WEB_PASSPHRASE` in `.env` to put it behind a passphrase: the page then shows a
+passphrase field instead of the button, and `/speak` rejects requests without a
+matching `x-passphrase` header (so the quotes are not reachable by just calling the
+endpoint). The passphrase is kept in `sessionStorage` for the tab and compared
+server-side with a timing-safe hash compare. It is a simple gate, not real
+security — put it behind HTTPS (a tunnel or reverse proxy) if you expose it. When
+`WEB_PASSPHRASE` is empty the page and endpoints stay open, and the bot logs a
+warning at startup.
+
 ## CLI
 
 Print a random message as JSON and exit, without running the bot:
@@ -99,8 +108,10 @@ curl -X POST http://127.0.0.1:7433/speak -H 'content-type: application/json' -d 
 ```
 
 Add `?mode=audio` to get the MP3 itself instead of playing it on the host (this is
-what the web page uses) — the quote text and author come back in `x-quote-text`
-and `x-quote-author` headers, URI-encoded:
+what the web page uses) — the raw quote text (mentions replaced with nicknames)
+and the author come back in `x-quote-content` and `x-quote-author` headers,
+URI-encoded. The synthesised wording is not sent; `POST /speak` without `mode`
+returns it as `text` in the JSON body:
 
 ```bash
 curl -X POST 'http://127.0.0.1:7433/speak?mode=audio' -H 'content-type: application/json' -d '{}' -o quote.mp3
@@ -120,6 +131,11 @@ every `/speak`, it fetches a quote and synthesizes it in the background. A
 so audio starts in a fraction of a second instead of waiting for the Discord
 history fetch (~1.7 s) and synthesis (~0.5 s). Passing an explicit channel ID
 skips the cache and synthesizes on demand.
+
+User mentions (`<@123…>`) are replaced with that member's server nickname before
+synthesis, so they are read as names instead of IDs. Nicknames come from the
+Discord API (guild member, falling back to display name then username) and are
+cached for the life of the process. Unresolvable mentions are dropped.
 
 Set `TTS_VOICE` to any Edge voice `ShortName` (`sv-SE-MattiasNeural`,
 `sv-SE-SofieNeural`, `en-GB-SoniaNeural`, …) and `TTS_RATE` to a rate adjustment
@@ -143,6 +159,7 @@ Silence on success; errors go to stderr with exit `1`.
 | `TTS_VOICE`             | `sv-SE-MattiasNeural` | Edge voice used by `npm run speak` |
 | `TTS_RATE`              | `+0%`   | Speaking rate adjustment for `TTS_VOICE`   |
 | `SPEAK_PORT`            | `7433`  | Port for the bot's local speak server               |
+| `WEB_PASSPHRASE`        | —       | Passphrase required by the web page (empty = open)  |
 
 ## Docker
 

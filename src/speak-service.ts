@@ -8,6 +8,7 @@ import { fetchQuote } from './rest-quote';
 import { synthesize } from './tts';
 
 export interface SpokenQuote {
+  content: string;
   text: string;
   dateLine: string | null;
   author: string;
@@ -17,6 +18,7 @@ export interface SpokenQuote {
 
 interface PreparedQuote {
   quote: QuoteMessage;
+  content: string;
   text: string;
   dateLine: string | null;
   audio: Buffer;
@@ -30,14 +32,27 @@ let queue: Promise<unknown> = Promise.resolve();
 let prepared: Promise<PreparedQuote> | undefined;
 let preparedChannelId: string | undefined;
 
-export function spokenText(quote: QuoteMessage): { text: string; dateLine: string | null } {
-  if (!quote.content.includes('-')) return { text: quote.content, dateLine: null };
+const MENTION_PATTERN = /<@!?(\d{17,20})>/g;
 
-  const pieces = quote.content.split('-');
-  const dateLine = `Den ${quote.createdAt.getDay()}:e ${quote.createdAt.toLocaleString('sv-se', { month: 'long' })} ${quote.createdAt.getFullYear()}`;
+export function withMentionNames(quote: QuoteMessage): string {
+  return quote.content.replace(MENTION_PATTERN, (_match, id: string) => quote.mentionNames[id] ?? '');
+}
+
+function spokenFrom(
+  content: string,
+  createdAt: Date,
+): { text: string; dateLine: string | null } {
+  if (!content.includes('-')) return { text: content, dateLine: null };
+
+  const pieces = content.split('-');
+  const dateLine = `Den ${createdAt.getDay()}:e ${createdAt.toLocaleString('sv-se', { month: 'long' })} ${createdAt.getFullYear()}`;
   const text = pieces[pieces.length - 1] + ' sa. ' + pieces.slice(0, -1) + '.';
 
   return { text, dateLine };
+}
+
+export function spokenText(quote: QuoteMessage): { text: string; dateLine: string | null } {
+  return spokenFrom(withMentionNames(quote), quote.createdAt);
 }
 
 async function prepare(channelId: string): Promise<PreparedQuote> {
@@ -47,9 +62,10 @@ async function prepare(channelId: string): Promise<PreparedQuote> {
     throw new Error('No quotable messages found in that channel.');
   }
 
-  const { text, dateLine } = spokenText(quote);
+  const content = withMentionNames(quote);
+  const { text, dateLine } = spokenFrom(content, quote.createdAt);
 
-  return { quote, text, dateLine, audio: await synthesize(text) };
+  return { quote, content, text, dateLine, audio: await synthesize(text) };
 }
 
 export function primeQuote(channelId = config.quoteChannelId): void {
@@ -69,6 +85,7 @@ export function primeQuote(channelId = config.quoteChannelId): void {
 
 function toSpoken(item: PreparedQuote): SpokenQuote {
   return {
+    content: item.content,
     text: item.text,
     dateLine: item.dateLine,
     author: item.quote.author.displayName,

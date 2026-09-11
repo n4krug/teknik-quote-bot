@@ -50,6 +50,11 @@ startSpeakServer()
   .then((server) => {
     speakServer = server;
     console.log(`Speak server listening on ${serverUrl(server)} — open it in a browser for a speak button`);
+
+    if (!config.webPassphrase) {
+      console.log('Warning: no WEB_PASSPHRASE set, the speak page is open to anyone who can reach it.');
+    }
+
     primeQuote();
     return client.login(config.token);
   })

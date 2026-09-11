@@ -22,9 +22,12 @@ async function main(): Promise<void> {
 
   let response: Response;
   try {
+    const headers: Record<string, string> = { 'content-type': 'application/json' };
+    if (config.webPassphrase) headers['x-passphrase'] = config.webPassphrase;
+
     response = await fetch(`${speakBaseUrl}/speak`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers,
       body: JSON.stringify(channelId ? { channelId } : {}),
     });
   } catch (error) {

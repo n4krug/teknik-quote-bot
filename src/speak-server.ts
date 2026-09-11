@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -21,7 +22,7 @@ function sendAudio(res: ServerResponse, quote: RenderedQuote): void {
   res.writeHead(200, {
     'content-type': 'audio/mpeg',
     'content-length': quote.audio.length,
-    'x-quote-text': encodeURIComponent(quote.text),
+    'x-quote-content': encodeURIComponent(quote.content),
     'x-quote-author': encodeURIComponent(quote.author),
     'cache-control': 'no-store',
   });
@@ -52,6 +53,26 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
+function passphraseFrom(req: IncomingMessage): string | undefined {
+  const value = req.headers['x-passphrase'];
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value[0];
+  return undefined;
+}
+
+function isAuthorized(req: IncomingMessage): boolean {
+  const expected = config.webPassphrase;
+  if (!expected) return true;
+
+  const candidate = passphraseFrom(req);
+  if (!candidate) return false;
+
+  return timingSafeEqual(
+    createHash('sha256').update(candidate).digest(),
+    createHash('sha256').update(expected).digest(),
+  );
+}
+
 function channelIdFrom(body: unknown): string | undefined {
   if (typeof body !== 'object' || body === null) return undefined;
   const value = (body as { channelId?: unknown }).channelId;
@@ -76,7 +97,27 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return;
     }
 
+    if (req.method === 'GET' && route.pathname === '/config') {
+      sendJson(res, 200, { passphraseRequired: Boolean(config.webPassphrase) });
+      return;
+    }
+
+    if (req.method === 'POST' && route.pathname === '/unlock') {
+      if (!isAuthorized(req)) {
+        sendJson(res, 401, { error: 'Wrong passphrase.' });
+        return;
+      }
+
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
     if (req.method === 'POST' && route.pathname === '/speak') {
+      if (!isAuthorized(req)) {
+        sendJson(res, 401, { error: config.webPassphrase ? 'Wrong passphrase.' : 'Passphrase required.' });
+        return;
+      }
+
       const channelId = await resolveChannel(req);
 
       if (!channelId) {

@@ -22,6 +22,7 @@ export interface QuoteMessage {
   url: string;
   attachments: string[];
   imageUrl: string | null;
+  mentionNames: Record<string, string>;
 }
 
 export function isGuildTextChannel(channel: unknown): channel is GuildTextBasedChannel {
@@ -60,6 +61,17 @@ export async function fetchHistory(
   return messages;
 }
 
+function mentionNames(message: Message): Record<string, string> {
+  const names: Record<string, string> = {};
+
+  for (const [id, user] of message.mentions.users) {
+    const member = message.mentions.members?.get(id) ?? message.guild?.members.cache.get(id);
+    names[id] = member?.displayName ?? user.globalName ?? user.username;
+  }
+
+  return names;
+}
+
 export function toQuoteMessage(message: Message): QuoteMessage {
   const image = message.attachments.find(
     (attachment) => attachment.contentType?.startsWith('image/') ?? false,
@@ -82,6 +94,7 @@ export function toQuoteMessage(message: Message): QuoteMessage {
     url: message.url,
     attachments: message.attachments.map((attachment) => attachment.url),
     imageUrl: image?.url ?? null,
+    mentionNames: mentionNames(message),
   };
 }
 

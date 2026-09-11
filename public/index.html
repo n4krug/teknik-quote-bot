@@ -24,6 +24,10 @@
         text-align: center;
       }
 
+      [hidden] {
+        display: none !important;
+      }
+
       h1 {
         font-size: 1.25rem;
         font-weight: 600;
@@ -46,6 +50,21 @@
 
       button:hover:not(:disabled) {
         background: #4752c4;
+      }
+
+      .buttons {
+        display: flex;
+        gap: 0.5rem;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+
+      button.secondary {
+        background: #34373d;
+      }
+
+      button.secondary:hover:not(:disabled) {
+        background: #3f434a;
       }
 
       button:disabled {
@@ -75,6 +94,26 @@
         display: none;
       }
 
+      form#unlock {
+        display: flex;
+        gap: 0.5rem;
+        justify-content: center;
+      }
+
+      form#unlock input {
+        font: inherit;
+        padding: 0.8rem 1rem;
+        border: 1px solid #34373d;
+        border-radius: 999px;
+        background: #1e2026;
+        color: inherit;
+      }
+
+      form#unlock input:focus {
+        outline: 2px solid #5865f2;
+        outline-offset: 1px;
+      }
+
       p.status {
         min-height: 1.5rem;
         margin: 1.25rem 0 0;
@@ -90,22 +129,94 @@
   <body>
     <main>
       <h1>Quote bot</h1>
-      <button id="speak" type="button">Speak a quote</button>
-      <blockquote id="quote"></blockquote>
-      <cite id="author"></cite>
+
+      <form id="unlock" hidden>
+        <input id="passphrase" type="password" placeholder="Passphrase" autocomplete="current-password" />
+        <button type="submit">Unlock</button>
+      </form>
+
+      <div id="app" hidden>
+        <div class="buttons">
+          <button id="speak" type="button">Speak a quote</button>
+          <button id="replay" class="secondary" type="button" hidden>Listen again</button>
+        </div>
+        <blockquote id="quote"></blockquote>
+        <cite id="author"></cite>
+      </div>
+
       <p id="status" class="status"></p>
     </main>
 
     <script>
       const button = document.getElementById('speak');
+      const replayButton = document.getElementById('replay');
       const quoteEl = document.getElementById('quote');
       const authorEl = document.getElementById('author');
       const statusEl = document.getElementById('status');
+      const unlockForm = document.getElementById('unlock');
+      const passphraseEl = document.getElementById('passphrase');
+      const appEl = document.getElementById('app');
       const audio = new Audio();
+
+      const PASSPHRASE_KEY = 'quote-bot-passphrase';
+      let passphrase = sessionStorage.getItem(PASSPHRASE_KEY) ?? '';
 
       function status(message, isError) {
         statusEl.textContent = message;
         statusEl.dataset.error = isError ? 'true' : 'false';
+      }
+
+      function headers() {
+        const result = { 'content-type': 'application/json' };
+        if (passphrase) result['x-passphrase'] = passphrase;
+        return result;
+      }
+
+      function showApp() {
+        unlockForm.hidden = true;
+        appEl.hidden = false;
+      }
+
+      function showUnlock() {
+        passphrase = '';
+        sessionStorage.removeItem(PASSPHRASE_KEY);
+        appEl.hidden = true;
+        unlockForm.hidden = false;
+        passphraseEl.focus();
+      }
+
+      async function request(path, options) {
+        const response = await fetch(path, options);
+
+        if (response.status === 401) {
+          showUnlock();
+          const detail = await response.json().catch(() => null);
+          throw new Error(detail?.error ?? 'Wrong passphrase.');
+        }
+
+        return response;
+      }
+
+      async function start() {
+        const config = await (await fetch('/config')).json();
+        if (config.passphraseRequired && !passphrase) showUnlock();
+        else showApp();
+      }
+
+      async function unlock(event) {
+        event.preventDefault();
+        passphrase = passphraseEl.value;
+        status('Checking…', false);
+
+        try {
+          await request('/unlock', { method: 'POST', headers: headers(), body: '{}' });
+          sessionStorage.setItem(PASSPHRASE_KEY, passphrase);
+          passphraseEl.value = '';
+          status('', false);
+          showApp();
+        } catch (error) {
+          status(error instanceof Error ? error.message : String(error), true);
+        }
       }
 
       async function speak() {
@@ -113,9 +224,9 @@
         status('Fetching a quote…', false);
 
         try {
-          const response = await fetch('/speak?mode=audio', {
+          const response = await request('/speak?mode=audio', {
             method: 'POST',
-            headers: { 'content-type': 'application/json' },
+            headers: headers(),
             body: '{}',
           });
 
@@ -124,13 +235,14 @@
             throw new Error(detail?.error ?? `Request failed with status ${response.status}.`);
           }
 
-          const text = response.headers.get('x-quote-text');
+          const text = response.headers.get('x-quote-content');
           const author = response.headers.get('x-quote-author');
 
           quoteEl.textContent = text ? decodeURIComponent(text) : '';
           authorEl.textContent = author ? `— ${decodeURIComponent(author)}` : '';
 
           audio.src = URL.createObjectURL(await response.blob());
+          replayButton.hidden = false;
           status('Playing…', false);
           await audio.play();
           status('', false);
@@ -141,7 +253,24 @@
         }
       }
 
+      async function replay() {
+        replayButton.disabled = true;
+
+        try {
+          audio.currentTime = 0;
+          await audio.play();
+          status('', false);
+        } catch (error) {
+          status(error instanceof Error ? error.message : String(error), true);
+        } finally {
+          replayButton.disabled = false;
+        }
+      }
+
       button.addEventListener('click', () => void speak());
+      replayButton.addEventListener('click', () => void replay());
+      unlockForm.addEventListener('submit', (event) => void unlock(event));
+      void start();
     </script>
   </body>
 </html>

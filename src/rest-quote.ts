@@ -1,6 +1,7 @@
 import { REST, Routes } from 'discord.js';
 import type { APIMessage } from 'discord-api-types/v10';
 import { config } from './config';
+import { mentionNames } from './mentions';
 import { messageUrl, selectQuote, type QuoteMessage } from './quote-service';
 
 const PAGE_SIZE = 100;
@@ -38,11 +39,11 @@ async function fetchMessages(
   return messages;
 }
 
-function toQuoteMessage(
+async function toQuoteMessage(
   raw: RawMessage,
   rest: REST,
   channelId: string,
-): QuoteMessage {
+): Promise<QuoteMessage> {
   const guildId = raw.guild_id ?? null;
   const image = raw.attachments.find(
     (attachment) => attachment.content_type?.startsWith('image/') ?? false,
@@ -67,6 +68,7 @@ function toQuoteMessage(
     url: messageUrl(guildId, channelId, raw.id),
     attachments: raw.attachments.map((attachment) => attachment.url),
     imageUrl: image?.url ?? null,
+    mentionNames: await mentionNames(rest, channelId, raw.content),
   };
 }
 
@@ -78,5 +80,9 @@ export async function fetchQuote(channelId: string): Promise<QuoteMessage | null
   const rest = new REST({ version: '10' }).setToken(config.token);
   const raw = await fetchMessages(rest, channelId, config.historyLimit);
 
-  return selectQuote(raw.map((message) => toQuoteMessage(message, rest, channelId)));
+  const messages = await Promise.all(
+    raw.map((message) => toQuoteMessage(message, rest, channelId)),
+  );
+
+  return selectQuote(messages);
 }
