@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="en">
+<html lang="sv">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Quote bot</title>
+    <title>Citatbot</title>
     <style>
       :root {
         color-scheme: dark;
@@ -128,17 +128,17 @@
   </head>
   <body>
     <main>
-      <h1>Quote bot</h1>
+      <h1>Citatbot</h1>
 
       <form id="unlock" hidden>
-        <input id="passphrase" type="password" placeholder="Passphrase" autocomplete="current-password" />
-        <button type="submit">Unlock</button>
+        <input id="passphrase" type="password" placeholder="Lösenfras" autocomplete="current-password" />
+        <button type="submit">Lås upp</button>
       </form>
 
       <div id="app" hidden>
         <div class="buttons">
-          <button id="speak" type="button">Speak a quote</button>
-          <button id="replay" class="secondary" type="button" hidden>Listen again</button>
+          <button id="speak" type="button">Läs upp ett citat</button>
+          <button id="replay" class="secondary" type="button" hidden>Lyssna igen</button>
         </div>
         <blockquote id="quote"></blockquote>
         <cite id="author"></cite>
@@ -190,8 +190,7 @@
 
         if (response.status === 401) {
           showUnlock();
-          const detail = await response.json().catch(() => null);
-          throw new Error(detail?.error ?? 'Wrong passphrase.');
+          throw new Error('Fel lösenfras.');
         }
 
         return response;
@@ -206,7 +205,7 @@
       async function unlock(event) {
         event.preventDefault();
         passphrase = passphraseEl.value;
-        status('Checking…', false);
+        status('Kontrollerar…', false);
 
         try {
           await request('/unlock', { method: 'POST', headers: headers(), body: '{}' });
@@ -221,7 +220,7 @@
 
       async function speak() {
         button.disabled = true;
-        status('Fetching a quote…', false);
+        status('Hämtar ett citat…', false);
 
         try {
           const response = await request('/speak?mode=audio', {
@@ -232,7 +231,7 @@
 
           if (!response.ok) {
             const detail = await response.json().catch(() => null);
-            throw new Error(detail?.error ?? `Request failed with status ${response.status}.`);
+            throw new Error(detail?.error ?? `Kunde inte hämta citat (status ${response.status}).`);
           }
 
           const text = response.headers.get('x-quote-content');
@@ -243,7 +242,7 @@
 
           audio.src = URL.createObjectURL(await response.blob());
           replayButton.hidden = false;
-          status('Playing…', false);
+          status('Spelar…', false);
           await audio.play();
           status('', false);
         } catch (error) {
