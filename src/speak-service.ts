@@ -1,13 +1,11 @@
-import { mkdtemp, rm, stat } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { MsEdgeTTS, OUTPUT_FORMAT } from 'msedge-tts';
 import { playFile } from './audio';
 import { config } from './config';
 import type { QuoteMessage } from './quote-service';
 import { fetchQuote } from './rest-quote';
-
-const MP3_KBPS = 48;
+import { synthesize } from './tts';
 
 export interface SpokenQuote {
   text: string;
@@ -16,6 +14,21 @@ export interface SpokenQuote {
   channelId: string;
   url: string;
 }
+
+interface PreparedQuote {
+  quote: QuoteMessage;
+  text: string;
+  dateLine: string | null;
+  audio: Buffer;
+}
+
+export interface RenderedQuote extends SpokenQuote {
+  audio: Buffer;
+}
+
+let queue: Promise<unknown> = Promise.resolve();
+let prepared: Promise<PreparedQuote> | undefined;
+let preparedChannelId: string | undefined;
 
 export function spokenText(quote: QuoteMessage): { text: string; dateLine: string | null } {
   if (!quote.content.includes('-')) return { text: quote.content, dateLine: null };
@@ -27,7 +40,7 @@ export function spokenText(quote: QuoteMessage): { text: string; dateLine: strin
   return { text, dateLine };
 }
 
-async function synthesizeAndPlay(channelId: string): Promise<SpokenQuote> {
+async function prepare(channelId: string): Promise<PreparedQuote> {
   const quote = await fetchQuote(channelId);
 
   if (!quote) {
@@ -36,35 +49,74 @@ async function synthesizeAndPlay(channelId: string): Promise<SpokenQuote> {
 
   const { text, dateLine } = spokenText(quote);
 
-  if (dateLine) console.log(dateLine);
-  console.log(text);
+  return { quote, text, dateLine, audio: await synthesize(text) };
+}
 
-  const dir = await mkdtemp(path.join(tmpdir(), 'quote-bot-'));
-  const tts = new MsEdgeTTS();
+export function primeQuote(channelId = config.quoteChannelId): void {
+  if (!channelId || prepared) return;
 
-  try {
-    await tts.setMetadata(config.ttsVoice, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
-    const { audioFilePath } = await tts.toFile(dir, text);
-    const { size } = await stat(audioFilePath);
-    await playFile(audioFilePath, (size * 8) / MP3_KBPS + 1000);
-  } finally {
-    tts.close();
-    await rm(dir, { recursive: true, force: true });
-  }
+  const pending = prepare(channelId);
+  prepared = pending;
+  preparedChannelId = channelId;
 
+  void pending.catch(() => {
+    if (prepared === pending) {
+      prepared = undefined;
+      preparedChannelId = undefined;
+    }
+  });
+}
+
+function toSpoken(item: PreparedQuote): SpokenQuote {
   return {
-    text,
-    dateLine,
-    author: quote.author.displayName,
-    channelId: quote.channelId,
-    url: quote.url,
+    text: item.text,
+    dateLine: item.dateLine,
+    author: item.quote.author.displayName,
+    channelId: item.quote.channelId,
+    url: item.quote.url,
   };
 }
 
-let queue: Promise<unknown> = Promise.resolve();
+async function playAudio(audio: Buffer): Promise<void> {
+  const dir = await mkdtemp(path.join(tmpdir(), 'quote-bot-'));
+
+  try {
+    const audioFilePath = path.join(dir, 'audio.mp3');
+    await writeFile(audioFilePath, audio);
+    await playFile(audioFilePath);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+export async function takeQuote(channelId: string): Promise<RenderedQuote> {
+  const pending = channelId === preparedChannelId ? prepared : undefined;
+
+  if (pending) {
+    prepared = undefined;
+    preparedChannelId = undefined;
+  }
+
+  try {
+    const item = pending ? await pending : await prepare(channelId);
+    return { ...toSpoken(item), audio: item.audio };
+  } finally {
+    primeQuote();
+  }
+}
+
+async function runSpeak(channelId: string): Promise<SpokenQuote> {
+  const { audio, ...spoken } = await takeQuote(channelId);
+
+  if (spoken.dateLine) console.log(spoken.dateLine);
+  console.log(spoken.text);
+
+  await playAudio(audio);
+  return spoken;
+}
 
 export function speakQuote(channelId: string): Promise<SpokenQuote> {
-  const spoken = queue.then(() => synthesizeAndPlay(channelId));
+  const spoken = queue.then(() => runSpeak(channelId));
   queue = spoken.catch(() => undefined);
   return spoken;
 }

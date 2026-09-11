@@ -29,6 +29,16 @@ Commands:
 - `/quote` — random message from the configured default channel
 - `/quote channel:#some-channel` — random message from a specific channel
 
+## Web page
+
+The bot serves a small page with a **Speak a quote** button on
+<http://127.0.0.1:7433> (or whatever `SPEAK_PORT` is). Clicking it fetches the
+pre-rendered quote as MP3 and plays it in the browser, showing the quote text and
+author. Nothing is played on the host's speakers unless you use `npm run speak`.
+
+It is served from the bot itself, so it is same-origin and needs no CORS headers —
+which also means only the machine running the bot can open it.
+
 ## CLI
 
 Print a random message as JSON and exit, without running the bot:
@@ -88,18 +98,36 @@ curl -X POST http://127.0.0.1:7433/speak -H 'content-type: application/json' -d 
 curl -X POST http://127.0.0.1:7433/speak -H 'content-type: application/json' -d '{"channelId":"123456789012345678"}'
 ```
 
+Add `?mode=audio` to get the MP3 itself instead of playing it on the host (this is
+what the web page uses) — the quote text and author come back in `x-quote-text`
+and `x-quote-author` headers, URI-encoded:
+
+```bash
+curl -X POST 'http://127.0.0.1:7433/speak?mode=audio' -H 'content-type: application/json' -d '{}' -o quote.mp3
+```
+
 The server only listens on loopback, and is not exposed outside the host (in
 Docker: only inside the container).
 
-Synthesis uses the `msedge-tts` Node library (Microsoft Edge neural voices), so no
-system TTS engine is needed — but it does require network access at runtime.
-Playback goes through `play-sound`, which picks the first available player from
-`mpv`, `ffplay`, `mplayer`, `afplay`, `mpg123`, `cvlc`, or `cmdmp3`. On Windows,
-where none of those are usually installed, it falls back to a built-in
-PowerShell `MediaPlayer` call, so no extra software is needed there either.
+Synthesis uses [`edge-tts-universal`](https://github.com/travisvn/edge-tts-universal)
+(Microsoft Edge's neural voices — no API key, no cost), so quality is the neural
+`sv-SE` voices rather than a robotic formant synth. The trade-off is that it
+needs network access at runtime.
 
-Set `TTS_VOICE` in `.env` to any Edge voice `ShortName` (`en-US-GuyNeural`,
-`en-GB-SoniaNeural`, …). Silence on success; errors go to stderr with exit `1`.
+The bot **pre-renders the next quote while idle**: when it starts, and again after
+every `/speak`, it fetches a quote and synthesizes it in the background. A
+`speak` request for the default channel then just plays what is already in memory,
+so audio starts in a fraction of a second instead of waiting for the Discord
+history fetch (~1.7 s) and synthesis (~0.5 s). Passing an explicit channel ID
+skips the cache and synthesizes on demand.
+
+Set `TTS_VOICE` to any Edge voice `ShortName` (`sv-SE-MattiasNeural`,
+`sv-SE-SofieNeural`, `en-GB-SoniaNeural`, …) and `TTS_RATE` to a rate adjustment
+(`+10%`, `-20%`, …). Output is MP3, played on Windows through
+`System.Windows.Media.MediaPlayer` and elsewhere via `play-sound` (`mpv`,
+`ffplay`, `mplayer`, `afplay`, `mpg123`, `cvlc`, `cmdmp3`).
+
+Silence on success; errors go to stderr with exit `1`.
 
 ## Configuration
 
@@ -112,7 +140,8 @@ Set `TTS_VOICE` in `.env` to any Edge voice `ShortName` (`en-US-GuyNeural`,
 | `QUOTE_HISTORY_LIMIT`   | `500`   | How many recent messages to consider (max 5000)      |
 | `QUOTE_EXCLUDE_BOTS`    | `true`  | Skip messages sent by bots                           |
 | `QUOTE_MIN_AGE_SECONDS` | `0`     | Skip messages newer than this (0 disables)           |
-| `TTS_VOICE`             | `en-US-GuyNeural` | Edge voice used by `npm run speak`        |
+| `TTS_VOICE`             | `sv-SE-MattiasNeural` | Edge voice used by `npm run speak` |
+| `TTS_RATE`              | `+0%`   | Speaking rate adjustment for `TTS_VOICE`   |
 | `SPEAK_PORT`            | `7433`  | Port for the bot's local speak server               |
 
 ## Docker

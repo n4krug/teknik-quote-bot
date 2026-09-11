@@ -17,7 +17,7 @@
     "discord-api-types": "^0.38.55",
     "discord.js": "^14.18.0",
     "dotenv": "^16.4.7",
-    "msedge-tts": "^2.0.7",
+    "edge-tts-universal": "^1.4.0",
     "play-sound": "^1.1.6"
   },
   "devDependencies": {

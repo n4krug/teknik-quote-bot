@@ -1,9 +1,11 @@
 import { spawn } from 'node:child_process';
+import { stat } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
 import playSound from 'play-sound';
 
 const PLAYERS = ['mpv', 'ffplay', 'mplayer', 'afplay', 'mpg123', 'cvlc', 'cmdmp3'] as never;
 const SHELLS = ['powershell', 'pwsh'];
+const MP3_KBPS = 48;
 
 const player = playSound({ players: PLAYERS });
 
@@ -75,8 +77,17 @@ async function playWithShells(filePath: string, fallbackDurationMs: number): Pro
   throw lastError instanceof Error ? lastError : new Error(String(lastError));
 }
 
-export function playFile(filePath: string, fallbackDurationMs = 0): Promise<void> {
-  if (player.player) return playWithPlayer(filePath);
-  if (process.platform === 'win32') return playWithShells(filePath, fallbackDurationMs);
-  return Promise.reject(new Error(`No audio player found. Install one of: ${(PLAYERS as unknown as string[]).join(', ')}`));
+export async function playFile(filePath: string): Promise<void> {
+  if (player.player) {
+    await playWithPlayer(filePath);
+    return;
+  }
+
+  if (process.platform === 'win32') {
+    const { size } = await stat(filePath);
+    await playWithShells(filePath, (size * 8) / MP3_KBPS + 1000);
+    return;
+  }
+
+  throw new Error(`No audio player found. Install one of: ${(PLAYERS as unknown as string[]).join(', ')}`);
 }

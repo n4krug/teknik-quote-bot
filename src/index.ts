@@ -3,6 +3,7 @@ import { Client, GatewayIntentBits, Interaction } from 'discord.js';
 import { commands } from './commands';
 import { config } from './config';
 import { serverUrl, startSpeakServer } from './speak-server';
+import { primeQuote } from './speak-service';
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
@@ -48,7 +49,8 @@ for (const signal of ['SIGINT', 'SIGTERM'] as const) {
 startSpeakServer()
   .then((server) => {
     speakServer = server;
-    console.log(`Speak server listening on ${serverUrl(server)}`);
+    console.log(`Speak server listening on ${serverUrl(server)} — open it in a browser for a speak button`);
+    primeQuote();
     return client.login(config.token);
   })
   .catch((error: unknown) => {

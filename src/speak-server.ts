@@ -1,9 +1,12 @@
+import { readFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import path from 'node:path';
 import { config } from './config';
-import { speakQuote } from './speak-service';
+import { speakQuote, takeQuote, type RenderedQuote } from './speak-service';
 
 const MAX_BODY_BYTES = 4096;
+const PAGE_FILE = path.join(__dirname, '..', 'public', 'index.html');
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
@@ -12,6 +15,26 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
     'content-length': Buffer.byteLength(payload),
   });
   res.end(payload);
+}
+
+function sendAudio(res: ServerResponse, quote: RenderedQuote): void {
+  res.writeHead(200, {
+    'content-type': 'audio/mpeg',
+    'content-length': quote.audio.length,
+    'x-quote-text': encodeURIComponent(quote.text),
+    'x-quote-author': encodeURIComponent(quote.author),
+    'cache-control': 'no-store',
+  });
+  res.end(quote.audio);
+}
+
+async function sendPage(res: ServerResponse): Promise<void> {
+  const html = await readFile(PAGE_FILE);
+  res.writeHead(200, {
+    'content-type': 'text/html; charset=utf-8',
+    'content-length': html.length,
+  });
+  res.end(html);
 }
 
 async function readJsonBody(req: IncomingMessage): Promise<unknown> {
@@ -35,20 +58,34 @@ function channelIdFrom(body: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+async function resolveChannel(req: IncomingMessage): Promise<string | undefined> {
+  return channelIdFrom(await readJsonBody(req)) ?? config.quoteChannelId;
+}
+
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const route = new URL(req.url ?? '/', `http://${config.speakHost}:${config.speakPort}`);
 
   try {
+    if (req.method === 'GET' && (route.pathname === '/' || route.pathname === '/index.html')) {
+      await sendPage(res);
+      return;
+    }
+
     if (req.method === 'GET' && route.pathname === '/health') {
       sendJson(res, 200, { status: 'ok', voice: config.ttsVoice });
       return;
     }
 
     if (req.method === 'POST' && route.pathname === '/speak') {
-      const channelId = channelIdFrom(await readJsonBody(req)) ?? config.quoteChannelId;
+      const channelId = await resolveChannel(req);
 
       if (!channelId) {
         sendJson(res, 400, { error: 'No channel given. Pass a channelId or set QUOTE_CHANNEL_ID.' });
+        return;
+      }
+
+      if (route.searchParams.get('mode') === 'audio') {
+        sendAudio(res, await takeQuote(channelId));
         return;
       }
 
